@@ -34,7 +34,8 @@ local currentCar = nil
 local currentSeat = nil
 local currentDoorName = nil
 
-local lastInteractionTime = 0
+local lastExitInteractionTime = 0
+local lastEntryInteractionTime = 0
 local INTERACTION_COOLDOWN = 0.5
 local ENTRY_TRACK_COMPLETION_BUFFER = 0.35
 local MIN_ENTRY_TRACK_WAIT = 2.5
@@ -322,7 +323,7 @@ local function bindExitKey()
 		function(actionName, inputState, inputObject)
 			if inputState == Enum.UserInputState.Begin then
 				local currentTime = tick()
-				if currentTime - lastInteractionTime < INTERACTION_COOLDOWN then
+				if currentTime - lastExitInteractionTime < INTERACTION_COOLDOWN then
 					return Enum.ContextActionResult.Sink
 				end
 
@@ -335,7 +336,7 @@ local function bindExitKey()
 				end
 				if not currentSeat.Parent then return Enum.ContextActionResult.Sink end
 
-				lastInteractionTime = currentTime
+				lastExitInteractionTime = currentTime
 
 				if character then
 					local equippedTool = character:FindFirstChildOfClass("Tool")
@@ -814,6 +815,10 @@ if EvBeginEntry then
 
 	
 	local conn = EvBeginEntry.OnClientEvent:Connect(function(token, doorName, att, driveSeat, seat)
+		local currentTime = tick()
+		if currentTime - lastEntryInteractionTime < INTERACTION_COOLDOWN then return end
+		lastEntryInteractionTime = currentTime
+
 		if inEntry then return end
 		if not character or not character.Parent then return end
 		if not humanoid or not humanoid.Parent then return end
