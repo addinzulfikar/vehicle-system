@@ -57,6 +57,8 @@ local DOOR_SIGNAL_TIMEOUT = 2.0
 local SEAT_WELD_TIMEOUT = 3.0
 local MAX_PROMPT_DISTANCE = 10
 local ENTRY_COOLDOWN = 1.0
+local EXIT_COOLDOWN = 0.75
+local LOCK_TOGGLE_COOLDOWN = 0.5
 local VALID_DOORS = { FL = true, FR = true, RL = true, RR = true }
 
 local DOOR_CFRAME_OFFSET = {
@@ -69,6 +71,8 @@ local DOOR_CFRAME_OFFSET = {
 local PlayerState = {}
 local busySeats = {}
 local lastEntryAttempt = {}
+local lastExitAttempt = {}
+local lastLockToggle = {}
 local _globalInit = false
 
 local function cacheCharacterParts(char)
@@ -621,6 +625,10 @@ function EnterHandler:InitGlobalHandlers()
 		if data.token ~= receivedToken then return end
 		if not VALID_DOORS[doorName] then return end
 
+		local now = os.clock()
+		if lastExitAttempt[player] and (now - lastExitAttempt[player]) < EXIT_COOLDOWN then return end
+		lastExitAttempt[player] = now
+
 		local char = player.Character
 		if not char or not char.Parent then return end
 		if char:GetAttribute("IsTransitioning") then return end
@@ -866,6 +874,10 @@ function EnterHandler:InitGlobalHandlers()
 	events.ToggleLock.OnServerEvent:Connect(function(player, car)
 		if typeof(car) ~= "Instance" or not car:IsA("Model") then return end
 
+		local now = os.clock()
+		if lastLockToggle[player] and (now - lastLockToggle[player]) < LOCK_TOGGLE_COOLDOWN then return end
+		lastLockToggle[player] = now
+
 		local ownerVal = car:FindFirstChild("Owner")
 		if ownerVal then
 			if string.lower(tostring(ownerVal.Value)) ~= string.lower(player.Name) then return end
@@ -959,6 +971,8 @@ function EnterHandler:InitGlobalHandlers()
 	Players.PlayerRemoving:Connect(function(player)
 		cleanupPlayer(player)
 		lastEntryAttempt[player] = nil
+		lastExitAttempt[player] = nil
+		lastLockToggle[player] = nil
 	end)
 end
 
