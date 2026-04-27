@@ -595,8 +595,6 @@ local function handlePassengerToolPhysics()
 	end)
 	passengerToolPhysicsConn = toolAddedConn
 
-	table.insert(eventConnections, toolAddedConn)
-
 	for _, tool in ipairs(character:GetChildren()) do
 		if tool:IsA("Tool") then
 			for _, part in ipairs(tool:GetDescendants()) do
