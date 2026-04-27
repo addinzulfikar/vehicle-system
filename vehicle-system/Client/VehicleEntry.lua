@@ -36,11 +36,14 @@ local currentDoorName = nil
 
 local lastInteractionTime = 0
 local INTERACTION_COOLDOWN = 0.5
+local ENTRY_TRACK_COMPLETION_BUFFER = 0.35
+local MIN_ENTRY_TRACK_WAIT = 2.5
 
 local eventConnections = {}
 local activePromptConnections = {}
 
 local entrySessionId = 0
+local finalizedEntryVisualSession = 0
 local doorOpenedSent = false
 local sequenceSent = false
 local usingFakeBody = false
@@ -204,6 +207,12 @@ local function restoreCharacterVisuals()
 		end
 	end
 	hiddenVisuals = {}
+end
+
+local function restoreEntryVisualState()
+	destroyFakeBody()
+	restoreCharacterVisuals()
+	restoreCharacterCollision()
 end
 
 local function createFakeBody(capturedCFrame)
@@ -390,41 +399,23 @@ local function playFakeBodyAnimation(fake, animId)
 	return track
 end
 
--- LocalScript: stopAndCleanupEntryVisuals
-local function stopAndCleanupEntryVisuals(sessionId)
-	task.spawn(function()
-		local stopped = false
-		if entryTrack then
-			local stoppedConn
-			stoppedConn = entryTrack.Stopped:Connect(function()
-				stopped = true
-				pcall(function() stoppedConn:Disconnect() end)
-			end)
-		end
+local function finalizeEntryVisuals(sessionId, shouldSignalAnimDone)
+	if sessionId ~= entrySessionId then return end
+	if finalizedEntryVisualSession == sessionId then return end
 
-		local timeout = 2.5
-		local elapsed = 0
-		while elapsed < timeout do
-			task.wait(0.1)
-			elapsed += 0.1
-			if sessionId ~= entrySessionId then return end
-			if stopped then break end
-		end
+	finalizedEntryVisualSession = sessionId
 
-		if sessionId ~= entrySessionId then return end
+	stopEntryAnim()
+	restoreEntryVisualState()
 
-		destroyFakeBody()
-		restoreCharacterVisuals()
-		restoreCharacterCollision()
-
-		-- ✅ Kirim SETELAH animasi fake body selesai
+	if shouldSignalAnimDone then
 		if not EvEntryAnimDone then
 			EvEntryAnimDone = getEvent("VehicleEntryAnimDone")
 		end
 		if EvEntryAnimDone and currentToken then
 			EvEntryAnimDone:FireServer(currentToken)
 		end
-	end)
+	end
 end
 
 local function blockToolEquip()
@@ -522,7 +513,7 @@ local function forceUnblockAll()
 	cleanupPassengerToolPhysics()
 	unblockToolEquip()
 	unbindExitKey()
-	restoreCharacterVisuals()
+	restoreEntryVisualState()
 
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
@@ -541,8 +532,7 @@ local function resetCharacterState()
 
 	stopEntryAnim()
 	stopExitAnim()
-	destroyFakeBody()
-	restoreCharacterVisuals()
+	restoreEntryVisualState()
 	cleanupPassengerToolPhysics()
 
 	if humanoid and humanoid.Parent then
@@ -691,12 +681,11 @@ local function bindCharacter(char)
 	disconnectAll(eventConnections)
 	stopEntryAnim()
 	stopExitAnim()
-	destroyFakeBody()
 	unbindExitKey()
 	unblockToolEquip()
 	unblockTransitionToolEquip()
 	cleanupPassengerToolPhysics()
-	restoreCharacterVisuals()
+	restoreEntryVisualState()
 
 	disabledCollisionParts = {}
 	hiddenVisuals = {}
@@ -715,6 +704,7 @@ local function bindCharacter(char)
 	doorOpenedSent = false
 	sequenceSent = false
 	usingFakeBody = false
+	finalizedEntryVisualSession = 0
 
 	character = char
 	humanoid = char:WaitForChild("Humanoid")
@@ -824,10 +814,6 @@ if EvBeginEntry then
 
 	
 	local conn = EvBeginEntry.OnClientEvent:Connect(function(token, doorName, att, driveSeat, seat)
-		
-		warn("enter",token, doorName, att, driveSeat, seat)
-		
-		
 		if inEntry then return end
 		if not character or not character.Parent then return end
 		if not humanoid or not humanoid.Parent then return end
@@ -889,6 +875,7 @@ if EvBeginEntry then
 
 		entrySessionId += 1
 		local sessionId = entrySessionId
+		finalizedEntryVisualSession = 0
 
 		fsm:set(STATES.ENTER_ANIM)
 
@@ -918,14 +905,9 @@ if EvBeginEntry then
 
 		local markerConn2
 		markerConn2 = track:GetMarkerReachedSignal("IdleTime"):Connect(function()
-			warn("triggers")
 			if sessionId ~= entrySessionId then return end
 			pcall(function() markerConn2:Disconnect() end)
-			pcall(function() track:AdjustSpeed(0) end)
-			task.delay(0.1,function()
-				restoreCharacterVisuals()
-				destroyFakeBody()
-			end)
+			finalizeEntryVisuals(sessionId, true)
 		end)
 
 		local trackLen = track.Length > 0 and track.Length or 2.0
@@ -948,7 +930,8 @@ if EvBeginEntry then
 				pcall(function() stoppedConn:Disconnect() end)
 			end)
 
-			local maxWait = track.Length > 0 and track.Length or 2.0
+			-- Buffer accounts for playback timing variation, minimum wait gives short tracks time to settle.
+			local maxWait = math.max(trackLen + ENTRY_TRACK_COMPLETION_BUFFER, MIN_ENTRY_TRACK_WAIT)
 			local elapsed = 0
 			while not stopped and elapsed < maxWait do
 				task.wait(0.1)
@@ -961,8 +944,7 @@ if EvBeginEntry then
 			end
 
 			if sessionId ~= entrySessionId then return end
-			pcall(function() track:AdjustSpeed(0) end)
-			stopAndCleanupEntryVisuals(sessionId)
+			finalizeEntryVisuals(sessionId, true)
 		end)
 
 		task.spawn(function()
