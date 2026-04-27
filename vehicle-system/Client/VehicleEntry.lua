@@ -19,6 +19,7 @@ local equippedToolBeforeEntry = nil
 local isDriverSeat = false
 local toolEquipBlocked = false
 local transitionToolBlocker = nil
+local passengerToolPhysicsConn = nil
 local extendedBlockTimer = nil
 
 local disabledCollisionParts = {}
@@ -492,6 +493,15 @@ local function unblockTransitionToolEquip()
 	end
 end
 
+local function cleanupPassengerToolPhysics()
+	if passengerToolPhysicsConn then
+		pcall(function()
+			passengerToolPhysicsConn:Disconnect()
+		end)
+		passengerToolPhysicsConn = nil
+	end
+end
+
 local function startExtendedBlock(duration)
 	if extendedBlockTimer then
 		pcall(function()
@@ -509,6 +519,7 @@ end
 
 local function forceUnblockAll()
 	unblockTransitionToolEquip()
+	cleanupPassengerToolPhysics()
 	unblockToolEquip()
 	unbindExitKey()
 	restoreCharacterVisuals()
@@ -532,6 +543,7 @@ local function resetCharacterState()
 	stopExitAnim()
 	destroyFakeBody()
 	restoreCharacterVisuals()
+	cleanupPassengerToolPhysics()
 
 	if humanoid and humanoid.Parent then
 		humanoid.WalkSpeed = DEFAULT_WALKSPEED
@@ -569,8 +581,9 @@ end
 local function handlePassengerToolPhysics()
 	if not character then return end
 
-	local toolAddedConn
-	toolAddedConn = character.ChildAdded:Connect(function(child)
+	cleanupPassengerToolPhysics()
+
+	local toolAddedConn = character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
 			for _, part in ipairs(child:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -580,6 +593,7 @@ local function handlePassengerToolPhysics()
 			end
 		end
 	end)
+	passengerToolPhysicsConn = toolAddedConn
 
 	table.insert(eventConnections, toolAddedConn)
 
@@ -626,6 +640,7 @@ local function connectSitHandler()
 			--end
 
 			if isDriverSeat then
+				cleanupPassengerToolPhysics()
 				blockToolEquip()
 			else
 				if character then
@@ -682,6 +697,7 @@ local function bindCharacter(char)
 	unbindExitKey()
 	unblockToolEquip()
 	unblockTransitionToolEquip()
+	cleanupPassengerToolPhysics()
 	restoreCharacterVisuals()
 
 	disabledCollisionParts = {}
@@ -708,14 +724,14 @@ local function bindCharacter(char)
 	animator = humanoid:WaitForChild("Animator")
 
 	local preloadedTracks = {}
-	for _, id in ipairs(ANIM_IDS) do
+	for _, id in pairs(ANIM_IDS) do
 		local a = Instance.new("Animation")
 		a.AnimationId = id
 		local track = animator:LoadAnimation(a)
 		table.insert(preloadedTracks, track)
 		a:Destroy()
 	end
-	for _, id in ipairs(EXIT_ANIM_IDS) do
+	for _, id in pairs(EXIT_ANIM_IDS) do
 		local a = Instance.new("Animation")
 		a.AnimationId = id
 		local track = animator:LoadAnimation(a)
